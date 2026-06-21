@@ -1,0 +1,12 @@
+# PlatformIO build output
+.pio/
+
+# Editor / OS
+.DS_Store
+.vscode/
+!.vscode/extensions.json
+
+# Firmware artifacts
+*.bin
+*.elf
+*.hex
