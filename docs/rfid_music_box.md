@@ -3,40 +3,24 @@
 ## Overview
 A DIY gift for a toddler (age ~2). Inspired by the Toniebox: placing an RFID-tagged card on top of a wooden box triggers audio playback. Each card has unique artwork and plays a specific MP3 file (nursery rhyme, animal sound, song, etc.).
 
----
-
-## Build Tracks
-
-The project is built in two stages so progress isn't blocked while new parts ship.
-
-| | Track A — Prototype | Track B — Final build |
-|---|---|---|
-| **Goal** | Validate the concept now with parts on hand | Gift-ready, user-friendly unit |
-| **Controller** | Arduino Uno / Nano (ATmega328P) | RP2040-Zero (native USB-C) |
-| **Audio** | DFPlayer Mini | MAX98357A I2S amp + microSD (SPI) |
-| **Add songs** | Edit SD card on a computer (numbered files) | Plug in USB-C → drag songs onto the box as a USB drive |
-| **Card binding** | UID → track table in firmware | 20 pre-programmed cards, fixed UID → ID 1–20 |
-| **Charging** | TP4056 (charge only) | Single USB-C, load-sharing charger (IP5306) |
-| **Status** | Build now | Design locked, parts on order |
-
-> Track A proves the RFID-read → play → stop loop and the enclosure. Track B is the design that ships as the gift. The two share the RC522, speaker, tags, and wooden box.
+The build uses **a fixed set of ~20 pre-programmed cards** (IDs 1–20). Each card's UID is hardcoded to an ID in firmware. Songs live on the microSD card named by ID, so the recipient can **swap songs by editing files on the SD card** — no code, no app, no re-flashing. Songs aren't expected to change often.
 
 ---
 
-## Hardware — Track A (Prototype, current parts)
+## Hardware
 
 | Component | Details |
 |---|---|
-| Arduino Nano (CH340, ATMEGA328P) | Prototype microcontroller |
-| Arduino Uno R3 (CH340) | Breadboard prototyping |
+| Arduino Nano (CH340, ATMEGA328P) | Final build microcontroller — lives inside the box |
+| Arduino Uno R3 (CH340) | Prototyping only — not in final build |
 | RC522 RFID reader module | SPI interface, reads NTAG213 tags |
 | DFPlayer Mini (16P) | MP3 playback from microSD card |
 | Speaker | 3W, 4 ohm, 40mm round — mounted inside box |
-| TP4056 (USB-C) | LiPo battery charging module (charge only) |
+| TP4056 (USB-C) | LiPo battery charging module |
 | LiPo battery | 3.7V, 1200mAh, 103040 form factor, PH 2.0 connector |
 | MicroSD card | FAT32 formatted, stores MP3 files |
-| NTAG213 sticker tags | One per card, 13.56MHz, compatible with RC522 |
-| Blank PVC cards (CR80) | Card backing — sticker tag on back, printed artwork on front |
+| NTAG213 sticker tags | One per card (~20), 13.56MHz, compatible with RC522 |
+| Blank PVC cards (CR80) | Card backing — sticker tag on back, printed artwork + ID on front |
 
 ---
 
@@ -83,13 +67,18 @@ The project is built in two stages so progress isn't blocked while new parts shi
 
 ---
 
-## MicroSD Card Setup
-- Format as **FAT32**
-- Create folder `01` in root
-- Name files `001.mp3`, `002.mp3`, `003.mp3` etc.
-- Each file corresponds to one RFID card/tag
+## MicroSD Card Setup & Card Scheme
 
----
+**~20 fixed cards, IDs 1–20.** Each card's UID is hardcoded to an ID in firmware (done once by you). Each card gets a **visible printed ID** (1–20). The DFPlayer plays files by number, so the ID *is* the track number.
+
+- Format the card as **FAT32**
+- Create folder `01` in the root
+- Name files by ID, zero-padded to three digits: `001.mp3` (card 1), `002.mp3` (card 2), … `020.mp3` (card 20)
+- Tap card with ID `N` → plays `/01/00N.mp3`
+
+**Swapping a song (recipient):** pop the microSD into a computer, replace the file for that ID (e.g. overwrite `007.mp3` with a new song, keeping the same name), put the card back. The card-to-slot binding never changes — only the audio file does.
+
+> If a card's ID has no matching file, the box stays silent (or plays a short "empty slot" cue if added in firmware).
 
 ## Firmware (PlatformIO + VS Code)
 
@@ -101,44 +90,40 @@ The project is built in two stages so progress isn't blocked while new parts shi
 1. On startup, initialise RC522 and DFPlayer
 2. In main loop, poll for RFID tag presence
 3. When tag detected, read UID
-4. Look up UID in a mapping table → get track number
-5. Send play command to DFPlayer for that track
-6. When card removed, optionally pause/stop playback
+4. Look up UID in the fixed card table → get ID (1–20)
+5. Play that track number on the DFPlayer (`/01/0NN.mp3`)
+6. When card removed, stop playback
 
-### Card/track mapping (example)
+### Card mapping (fixed 20 cards)
+UIDs are bound to a permanent ID once. The recipient never edits this — they only swap the matching MP3 on the SD card.
+
 ```cpp
 struct CardMap {
   String uid;
-  int track;
+  int id;  // 1..20, also the track number -> /01/0{id}.mp3
 };
 
 CardMap cards[] = {
-  {"AB CD EF 01", 1},  // Old MacDonald
-  {"AB CD EF 02", 2},  // Twinkle Twinkle
-  {"AB CD EF 03", 3},  // Animal sounds
-  // add more cards here
+  {"AB CD EF 01", 1},  // Card 1
+  {"AB CD EF 02", 2},  // Card 2
+  {"AB CD EF 03", 3},  // Card 3
+  // ... up to 20
 };
 ```
 
-> UIDs are read from serial monitor during setup — scan each card and note the UID, then populate the mapping table.
+> UIDs are read from the serial monitor during setup — scan each of the 20 cards, note the UID, and assign it the next ID. Print a matching ID label on each card's artwork.
 
 ---
 
 ## Development Workflow
 
-**Track A (now, current parts):**
 1. **Prototype phase** — wire everything on breadboard with Arduino Uno, test code
-2. **Card registration** — scan each NTAG213 tag, record UIDs via serial monitor, populate mapping
-3. **Audio prep** — source/record MP3 files, name correctly, load onto microSD
-4. **Solder up** — replicate circuit with Arduino Nano, mount in wooden box, test the full loop
-5. **Enclosure** — drill speaker grille + USB-C port hole in wooden box, mount components, close up
-
-**Track B (when parts arrive):**
-6. **Re-platform** — move to RP2040-Zero + MAX98357A I2S amp + microSD (SPI)
-7. **USB-MSC** — expose the SD card as a USB drive over the single USB-C port
-8. **Pre-program 20 cards** — bind each UID to a fixed ID 1–20 in firmware, print ID labels
-9. **Single-port power** — wire RP2040 VBUS into the IP5306 load-sharing charger
-10. **Pack the gift** — preload songs, include a printed "how to add a song" card
+2. **Card registration** — scan all ~20 NTAG213 tags, record UIDs via serial monitor, assign each a fixed ID 1–20
+3. **Label cards** — print artwork with a visible ID (1–20) on each card
+4. **Audio prep** — source/record MP3 files, name by ID (`001.mp3`…`020.mp3`), load into folder `01` on the microSD
+5. **Final build** — replicate circuit with Arduino Nano, solder connections, mount in wooden box
+6. **Enclosure** — drill speaker grille + USB-C port hole in wooden box, mount components, close up
+7. **Gift extras** — preload songs and include a short printed note: "to change a song, swap the numbered file on the SD card"
 
 ---
 
@@ -151,67 +136,26 @@ CardMap cards[] = {
 
 ---
 
-# Track B — Final Build (RP2040 + USB-MSC)
-
-The gift-ready design. Goal: the recipient can add songs with **no app, no code, no UIDs** — plug in USB-C, drag a numbered MP3 onto the box, unplug, tap the matching card.
-
-## Hardware — Track B
-
-| Component | Search term (AliExpress) | ~Price | Notes |
-|---|---|---|---|
-| RP2040-Zero | `RP2040-Zero` | $2.50–4 | Native **USB-C**, runs USB Mass Storage + audio. The single port. |
-| I2S amplifier | `MAX98357A I2S amplifier` | $1–2 | Mono 3W class-D; drives the 4Ω speaker. Replaces the DFPlayer. |
-| MicroSD module (SPI) | `Micro SD card module SPI` | $0.40–1 | RP2040 reads card over SPI and shares it over USB. |
-| Charger (load-sharing) | `IP5306 module` | $1–2 | Single-port charge + power-path so the MCU can run while charging from a PC. |
-| RC522 RFID module | `RC522 RFID module` | $1 | Unchanged from Track A. |
-| NTAG213 sticker tags | `NTAG213 sticker` | — | One per card. |
-| Speaker, LiPo, box | — | — | Reused from Track A. |
-
-> New spend is roughly **$5–9**. Buy 2× of the cheap bits (RP2040-Zero, MAX98357A, SD module) as spares.
-
-## Single USB-C port — power + data
-
-One port does everything:
-- **Wall plug** → charges only.
-- **PC** → charges **and** the box appears as a USB drive for dragging songs on.
-- Playing audio *while plugged in* is **not** required.
-
-The RP2040-Zero's onboard USB-C is the single port. Its **VBUS (5V)** feeds the IP5306, which charges the LiPo and supplies the MCU's load while plugged in (needed because the RP2040 must run to present the SD drive). When unplugged, the box runs from battery and plays cards.
-
-> ⚠️ Confirm the RP2040-Zero listing exposes a **`5V`/`VBUS` pad** — that's the wire tapped for charging.
-
-## How songs play (ID scheme)
-
-- **20 pre-programmed cards.** You bind each card's UID to a fixed **ID 1–20** once, baked into firmware. The recipient never sees a UID.
-- Each card has a **visible printed ID** (1–20).
-- **Recipient rule:** name the file with the card's number, e.g. `07 - Old MacDonald.mp3` in `/songs/`.
-- Playback: tap card → firmware resolves UID → ID → plays the file in `/songs/` whose name starts with that zero-padded ID (`07`).
-- If a card's ID has no matching file → play a gentle "nothing here yet" chime instead of silence.
-- Standardize on **two-digit IDs** (`01`–`20`) for clean sorting/matching.
-
----
-
 # Design Options (decisions log)
 
 Alternatives considered, with the chosen path noted. Kept for reference.
 
 ## Card → song binding
-| Option | How recipient adds a song | Verdict |
+| Option | How songs are managed | Verdict |
 |---|---|---|
-| **A. Learn-mode button** | Drag MP3, hold button, tap card → box writes UID→file to SD | Most foolproof; needs a button + persistent mapping |
-| **B. Write track onto the tag** | Box programs the filename/number into NTAG213 memory | Elegant, no box state; lost tag = lost binding |
-| **C. Fixed ID 1–20, name file by ID** | Drag MP3 named with the card number | **Chosen** — no UIDs, no button, no learn mode for the recipient |
+| Learn-mode button | Drag MP3, hold button, tap card → box writes UID→file to SD | Foolproof but needs a button + persistent mapping; overkill |
+| Write track onto the tag | Box programs the filename/number into NTAG213 memory | Elegant, no box state; lost tag = lost binding |
+| **Fixed ID 1–20, file named by ID** | Hardcode UID→ID once; recipient swaps the numbered MP3 on the SD card | **Chosen** — simplest; no UIDs, no button, no re-flashing for the recipient |
 
-## Loading audio
+## Loading / swapping audio
 | Option | Requires | Verdict |
 |---|---|---|
-| TP4056 USB-C (current) | — | Charge only — **cannot** transfer files |
-| Removable microSD slot | Panel-mount microSD extender (~$2–4) | Cheap; keeps Nano, but recipient handles a tiny card |
-| **USB-MSC over the controller** | RP2040/ESP32-S3 (native USB) | **Chosen** — drag-and-drop, no card handling |
+| **Edit microSD on a computer** | Current parts only | **Chosen** — songs rarely change; recipient overwrites a numbered file |
+| Removable microSD slot | Panel-mount microSD extender (~$2–4) | Optional nicety so the card is easy to reach without opening the box |
+| USB-MSC over the controller | RP2040/ESP32-S3 (native USB) + I2S amp | Rejected — drag-and-drop is nicer but needs a controller + audio re-platform |
 
-## USB-C ports
-| Option | Requires | Verdict |
+## Controller / audio platform
+| Option | Notes | Verdict |
 |---|---|---|
-| Two ports (data + charge) | RP2040 USB-C + separate TP4056 | Simplest wiring, but two ports on the box |
-| **Single port** | Load-sharing charger (IP5306) fed from RP2040 VBUS | **Chosen** — one clean port, charge + data |
-| Single dedicated breakout port | USB-C breakout + 2× 5.1kΩ CC resistors | Tidiest physically; more soldering |
+| **Arduino Nano + DFPlayer Mini** | Current parts; plays SD files by number | **Chosen** — matches the fixed-ID scheme, no new hardware |
+| RP2040-Zero + MAX98357A I2S | Native USB-C, SD-as-USB-drive | Rejected for now — more parts/cost; revisit only if drag-and-drop becomes a must |
